@@ -5,14 +5,15 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.viewModels
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -35,11 +36,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Dataset
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LibraryAdd
 import androidx.compose.material.icons.filled.OpenInFull
-import androidx.compose.material.icons.filled.Dataset
 import androidx.compose.material.icons.filled.Web
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -48,12 +49,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -83,9 +80,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.google.gson.Gson
 import kotlinx.coroutines.CoroutineScope
-import kotlin.random.Random
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
@@ -94,18 +90,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.Response as OkHttpResponse
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
-import retrofit2.http.*
-import retrofit2.Response as RetroResponse
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.http.*
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.Date
 import java.util.Locale
-
+import kotlin.random.Random
+import okhttp3.Response as OkHttpResponse
+import retrofit2.Response as RetroResponse
 
 object DateConverter {
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
@@ -427,7 +423,6 @@ class SynchronizedRepository(context: Context) : ItemRepository {
                         ).show()
                     }
                 }
-//                (context as? MainActivity)?.viewModel?.refresh()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: OkHttpResponse?) {
@@ -523,15 +518,48 @@ class ItemService(context: Context) : Application() {
 }
 
 @Composable
+fun rememberNetworkStatus(): Boolean {
+    val context = LocalContext.current
+    val isOnline = remember { mutableStateOf(NetworkContext(context).isOnline()) }
+
+    DisposableEffect(Unit) {
+        val connectivityManager =
+            context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+        val networkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                isOnline.value = true
+            }
+
+            override fun onLost(network: Network) {
+                isOnline.value = false
+            }
+        }
+
+        val networkRequest = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+
+        connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
+
+        onDispose {
+            connectivityManager.unregisterNetworkCallback(networkCallback)
+        }
+    }
+
+    return isOnline.value
+}
+
+
+@Composable
 fun IconButton(
     onclick: () -> Unit,
-    context: Context?,
-    isEnabled: (Context?) -> Boolean,
+    isEnabled: () -> Boolean,
     icon: ImageVector,
     description: String?,
 ) {
     Button(
-        onClick = onclick, enabled = isEnabled(context)
+        onClick = onclick, enabled = isEnabled()
     ) {
         Image(
             imageVector = icon,
@@ -543,12 +571,11 @@ fun IconButton(
 @Composable
 fun AddButton(
     onclick: () -> Unit,
-    context: Context,
-    isEnabled: (Context) -> Boolean,
 ) {
+    val isOnline = rememberNetworkStatus()
     Button(
         onClick = onclick,
-        enabled = isEnabled(context)
+        enabled = isOnline
     ) {
         Image(
             imageVector = Icons.Filled.LibraryAdd,
@@ -560,12 +587,11 @@ fun AddButton(
 @Composable
 fun ReportsButton(
     onclick: () -> Unit,
-    context: Context,
-    isEnabled: (Context) -> Boolean,
 ) {
+    val isOnline = rememberNetworkStatus()
     Button(
         onClick = onclick,
-        enabled = isEnabled(context)
+        enabled = isOnline
     ) {
         Image(
             imageVector = Icons.Filled.Dataset,
@@ -577,12 +603,11 @@ fun ReportsButton(
 @Composable
 fun InsightsButton(
     onclick: () -> Unit,
-    context: Context,
-    isEnabled: (Context) -> Boolean,
 ) {
+    val isOnline = rememberNetworkStatus()
     Button(
         onClick = onclick,
-        enabled = isEnabled(context)
+        enabled = isOnline
     ) {
         Image(
             imageVector = Icons.Filled.Web,
@@ -594,91 +619,73 @@ fun InsightsButton(
 @Composable
 fun DeleteButton(
     action: () -> Unit,
-    context: Context,
-    isEnabled: (Context) -> Boolean,
 ) {
+    val isOnline = rememberNetworkStatus()
     IconButton(
         action,
         icon = Icons.Filled.Delete,
         description = "Delete",
-        isEnabled = { it != null && isEnabled(it) },
-        context = context
+        isEnabled = { isOnline }
     )
 }
 
 @Composable
 fun EditButton(
     action: () -> Unit,
-    context: Context,
-    isEnabled: (Context) -> Boolean,
 ) {
+    val isOnline = rememberNetworkStatus()
+
     IconButton(
         onclick = action,
         icon = Icons.Filled.Edit,
         description = "Edit",
-        isEnabled = { it != null && isEnabled(it) },
-        context = context,
+        isEnabled = { isOnline },
     )
 }
 
 @Composable
 fun ViewButton(
-    action: () -> Unit,
-    isEnabled: (Context) -> Boolean,
-    context: Context
+    action: () -> Unit
 ) {
+    val isOnline = rememberNetworkStatus()
     IconButton(
         onclick = action,
         icon = Icons.Filled.OpenInFull,
         description = "View",
-        isEnabled = { it != null && isEnabled(it) },
-        context = context,
+        isEnabled = { isOnline }
     )
 }
 
 @Composable
 fun BackButton(
-    action: () -> Unit,
-    isEnabled: (Context?) -> Boolean = { true },
-    context: Context? = null
-) = if (context != null) {
+    action: () -> Unit
+) {
     IconButton(
         onclick = action,
         icon = Icons.Filled.ArrowBackIosNew,
         description = "Back",
-        isEnabled = { isEnabled(it) },
-        context = context
-    )
-} else {
-    IconButton(
-        onclick = action,
-        icon = Icons.Filled.ArrowBackIosNew,
-        description = "Back",
-        isEnabled = { true },
-        context = null
+        isEnabled = { true }
     )
 }
 
 @Composable
 fun SubmitButton(
     action: () -> Unit,
-    isEnabled: (Context) -> Boolean,
-    context: Context
+    isEnabled: () -> Boolean
 ) {
+    val isOnline = rememberNetworkStatus()
+
     IconButton(
         onclick = action,
         icon = Icons.Filled.Check,
         description = "Submit",
-        isEnabled = { it != null && isEnabled(it) },
-        context = context,
+        isEnabled = { isOnline && isEnabled() },
     )
 }
 
 object Theme {
     val primaryBackground = Color(0xFF212121)
-    val secondaryBackground = Color(0xFFCFD8DC)
     val primaryAccent = Color(0xFF00796b)
-    val secondaryAccent = Color(0xFF3B7893)
     val primaryText = Color(0xFFCFD8DC)
     val secondaryText = Color(0xFF212121)
     val ultimateBackground = Color(0xBF364F57)
@@ -687,9 +694,7 @@ object Theme {
 @Composable
 fun DeleteConfirmationDialog(
     cleanup: () -> Unit,
-    submit: () -> Unit,
-    context: Context,
-    isEnabled: (Context) -> Boolean,
+    submit: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = { cleanup() },
@@ -705,16 +710,8 @@ fun DeleteConfirmationDialog(
                 color = Theme.secondaryText
             )
         },
-        confirmButton = {
-            DeleteButton(
-                { submit(); cleanup() },
-                context = context,
-                isEnabled = isEnabled
-            )
-        },
-        dismissButton = {
-            BackButton({ cleanup() })
-        }
+        confirmButton = { DeleteButton { submit(); cleanup() } },
+        dismissButton = { BackButton { cleanup() } }
     )
 }
 
@@ -773,9 +770,7 @@ fun ReadOneActivity(
     if (deleteRequestId != null) {
         return DeleteConfirmationDialog(
             submit = { viewModel.delete(deleteRequestId!!) },
-            cleanup = { deleteRequestId = null; navigator.popBackStack("read", inclusive = false) },
-            context = LocalContext.current.applicationContext,
-            isEnabled = { NetworkContext(it).isOnline() }
+            cleanup = { deleteRequestId = null; navigator.popBackStack("read", inclusive = false) }
         )
     }
 
@@ -825,15 +820,9 @@ fun ReadOneActivity(
                 .fillMaxWidth()
                 .padding(bottom = 64.dp)
         ) {
-            BackButton({ navigator.popBackStack() })
-            EditButton({ navigator.navigate("edit/${subjectId}") },
-                context = LocalContext.current.applicationContext,
-                isEnabled = {
-                    NetworkContext(it).isOnline()
-                })
-            DeleteButton({ deleteRequestId = subjectId },
-                context = LocalContext.current.applicationContext,
-                isEnabled = { NetworkContext(it).isOnline() })
+            BackButton { navigator.popBackStack() }
+            EditButton { navigator.navigate("edit/${subjectId}") }
+            DeleteButton { deleteRequestId = subjectId }
         }
     }
 }
@@ -897,16 +886,9 @@ fun SingleItemView(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                ViewButton(
-                    onViewButtonClick,
-                    context = LocalContext.current.applicationContext,
-                    isEnabled = { NetworkContext(it).isOnline() })
-                EditButton(onEditButtonClick,
-                    context = LocalContext.current.applicationContext,
-                    isEnabled = { NetworkContext(it).isOnline() })
-                DeleteButton(onDeleteButtonClick,
-                    context = LocalContext.current.applicationContext,
-                    isEnabled = { NetworkContext(it).isOnline() })
+                ViewButton(onViewButtonClick)
+                EditButton(onEditButtonClick)
+                DeleteButton(onDeleteButtonClick)
             }
         }
     }
@@ -923,8 +905,6 @@ fun ReadAllActivity(
         return DeleteConfirmationDialog(
             submit = { viewModel.delete(deleteRequestId!!) },
             cleanup = { deleteRequestId = null },
-            isEnabled = { NetworkContext(it).isOnline() },
-            context = LocalContext.current.applicationContext,
         )
     }
     return Scaffold(
@@ -965,21 +945,9 @@ fun ReadAllActivity(
                         .fillMaxWidth()
                         .padding(bottom = 64.dp)
                 ) {
-                    AddButton(
-                        { navigator.navigate("create") },
-                        context = LocalContext.current.applicationContext,
-                        isEnabled = { NetworkContext(it).isOnline() },
-                    )
-                    ReportsButton(
-                        { navigator.navigate("reports") },
-                        context = LocalContext.current.applicationContext,
-                        isEnabled = { NetworkContext(it).isOnline() }
-                    )
-                    InsightsButton(
-                        { navigator.navigate("insights") },
-                        context = LocalContext.current.applicationContext,
-                        isEnabled = { NetworkContext(it).isOnline() }
-                    )
+                    AddButton { navigator.navigate("create") }
+                    ReportsButton { navigator.navigate("reports") }
+                    InsightsButton { navigator.navigate("insights") }
 
                 }
             }
@@ -1070,8 +1038,7 @@ fun ItemForm(
                         )
                     )
                 },
-                context = LocalContext.current.applicationContext,
-                isEnabled = { context -> isValid() && NetworkContext(context).isOnline() },
+                isEnabled = { isValid() }
             )
         }
     }
