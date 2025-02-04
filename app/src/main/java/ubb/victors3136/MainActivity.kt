@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -388,13 +389,13 @@ object WebSocketClient {
     private var webSocket: WebSocket? = null
 
     fun connect(listener: WebSocketListener) {
-        Log.d("[WS Listener]","Connecting to ws")
+        Log.d("[WS Listener]", "Connecting to ws")
         val request = Request.Builder().url(WS_URL).build()
         webSocket = client.newWebSocket(request, listener)
     }
 
     fun disconnect() {
-        Log.d("[WS Listener]","Closing ws")
+        Log.d("[WS Listener]", "Closing ws")
         webSocket?.close(1000, "Closing WebSocket")
         webSocket = null
     }
@@ -426,6 +427,7 @@ class SynchronizedRepository(context: Context) : ItemRepository {
                         ).show()
                     }
                 }
+//                (context as? MainActivity)?.viewModel?.refresh()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: OkHttpResponse?) {
@@ -1347,6 +1349,7 @@ class MainActivity : ComponentActivity() {
             Main()
         }
     }
+
     override fun onDestroy() {
         super.onDestroy()
         WebSocketClient.disconnect()
